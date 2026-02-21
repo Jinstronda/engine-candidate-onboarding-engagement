@@ -1,0 +1,254 @@
+api_key: null
+allowed_origins:
+- '*'
+systems:
+- id: candidate-onboarding-engagement
+  name: Candidate Experience & Onboarding System
+  description: Handles multi-modal candidate interaction, including voice-based onboarding
+    and conversational career advice.
+  topology: orchestrator
+  agents:
+  - type: writer
+    prompt: You are the Candidate Experience Coordinator. Your role is to route candidate
+      inquiries to the correct specialist. Route career advice and job matching requests
+      to analyst_1. Route requests for specific company research or job board fetching
+      to researcher_2. Route voice transcription analysis and profile extraction tasks
+      to screener_3. If the request is a general greeting or simple query, respond
+      directly with a friendly tone as 'Jack'.
+    tools: []
+  - type: analyst
+    prompt: You are a Career Advisor. Use the score_candidate tool to compare a candidate's
+      profile against job descriptions to provide detailed, evidence-based career
+      advice. Explain specific strengths and why they match certain roles. Use the
+      calculate tool if you need to normalize scores or rank multiple opportunities.
+    tools:
+    - score_candidate
+    - calculate
+    - parse_document
+  - type: researcher
+    prompt: You are a Recruitment Researcher. Your job is to provide context on hiring
+      companies and open roles. Use ashby_resolve_slug and ashby_fetch_jobs to find
+      current openings. Use linkedin_company to provide candidates with insights into
+      company size, culture, and headquarters to help them make informed career decisions.
+    tools:
+    - ashby_resolve_slug
+    - ashby_fetch_jobs
+    - linkedin_company
+    - tavily_search
+  - type: screener
+    prompt: "You are a Talent Data Extractor. Your goal is to process unstructured\
+      \ inputs\u2014like voice transcriptions or resumes\u2014and extract structured\
+      \ candidate data. Use parse_document to read input text and identify professional\
+      \ skills, career goals, and the candidate's 'vibe' (enthusiasm, seniority level,\
+      \ etc.) for profile creation."
+    tools:
+    - parse_document
+    - score_candidate
+- id: employer-intake-pipeline
+  name: Employer Briefing & Intake Pipeline
+  description: Converts natural language employer conversations into structured job
+    requirements and search criteria through a multi-stage extraction and validation
+    process.
+  topology: sequential
+  agents:
+  - type: writer
+    prompt: You are 'Jill', an expert AI recruiter. Your goal is to guide the employer
+      through a briefing session. Respond to their inputs by asking clarifying questions
+      about the role's technical requirements, seniority, and team culture. Ensure
+      you maintain a professional and helpful tone while gathering all necessary data
+      points for a job description.
+    tools:
+    - parse_document
+  - type: analyst
+    prompt: You are a recruitment data analyst. Your task is to process the conversation
+      history between Jill and the employer. Extract the official job title, a list
+      of specific technical and soft skill requirements, and a summary of the desired
+      culture fit. Format your findings into structured data categories, focusing
+      on clarity and searchability.
+    tools:
+    - calculate
+    - tavily_search
+  - type: validator
+    prompt: You are the recruitment quality assurance lead. Review the extracted job
+      brief for completeness and accuracy. The brief must contain a valid job title,
+      at least three specific requirements, and at least two culture fit indicators.
+      If the data is complete and professionally formatted, call accept_output; otherwise,
+      call reject_output with a reason explaining what is missing.
+    tools:
+    - accept_output
+    - reject_output
+- id: match-analysis-engine
+  name: Semantic Match Analysis Engine
+  description: Calculates semantic similarity between candidate profiles and job briefings
+    to produce relevance scores, focusing on technical alignment and cultural fit.
+  topology: single
+  agents:
+  - type: analyst
+    prompt: You are a specialist in semantic alignment and talent evaluation. Your
+      role is to ingest job briefings and candidate profiles to calculate objective
+      match scores. Use the score_candidate tool to perform side-by-side comparisons
+      of skills and experience. When evaluating 'vibe match', look for markers of
+      company culture alignment within the profile descriptions. Use the calculate
+      tool to normalize weights between technical requirements and soft skills to
+      produce a final 1-10 score.
+    tools:
+    - score_candidate
+    - calculate
+    - parse_document
+endpoints:
+- slug: candidate-chat-interaction
+  description: Provides an immediate, friendly chat response to engage candidates
+    in a conversational experience.
+  usage: Called when the user interacts with the 'Jack' AI widget on the landing page
+    for quick engagement.
+  system_id: candidate-onboarding-engagement
+  contract:
+  - name: input
+    type: string
+    description: The raw message text sent by the candidate
+  response:
+  - name: reply
+    type: string
+    description: The friendly, conversational response generated by the AI
+  - name: timestamp
+    type: string
+    description: ISO timestamp of the response
+  prompt: 'Generate a conversational and welcoming response to the candidate''s message:
+    {input}. Maintain the persona of ''Jack'', a helpful AI career assistant.'
+- slug: voice-onboarding-logic
+  description: Manages the state and logic for the voice-based onboarding interface.
+  usage: Called when the frontend initializes or toggles the voice recording interface
+    for profile setup.
+  system_id: candidate-onboarding-engagement
+  contract:
+  - name: active
+    type: boolean
+    description: Whether the voice recording state is currently engaged
+  response:
+  - name: status
+    type: string
+    description: The current operational status of the voice logic (e.g., listening,
+      processing, idle)
+  - name: instructions
+    type: string
+    description: Natural language guidance for the candidate on what to say next
+  prompt: Define the system's operational instructions based on the voice engagement
+    state being {active}. Provide clear prompts to guide a candidate through a hands-free
+    profile creation process.
+- slug: candidate-ai-chat
+  description: Deep career advice chat that analyzes candidate profiles against job
+    opportunities.
+  usage: Called when a registered candidate asks for specific matching rationale or
+    career growth steps.
+  system_id: candidate-onboarding-engagement
+  contract:
+  - name: message
+    type: string
+    description: The candidate's specific question or career inquiry
+  - name: candidate_id
+    type: string
+    description: The unique identifier for the candidate to retrieve profile context
+  response:
+  - name: response
+    type: string
+    description: Detailed career advice or job-matching explanation
+  - name: metadata
+    type: object
+    description: Structured data containing job IDs, match scores, and recommended
+      skills
+  prompt: Acting as an expert career coach, address the inquiry '{message}' for candidate
+    {candidate_id}. Evaluate their specific skills against available market data and
+    explain exactly why they are a strong fit for current open roles.
+- slug: voice-transcribe-analyze
+  description: Transcribes voice data and extracts structured career profiles.
+  usage: Called after a voice onboarding session to convert audio into skills and
+    goals data.
+  system_id: candidate-onboarding-engagement
+  contract:
+  - name: audio_url
+    type: string
+    description: The URL or path to the recorded audio file from the onboarding session
+  response:
+  - name: transcription
+    type: string
+    description: The full text transcription of the candidate's speech
+  - name: extracted_skills
+    type: array
+    description: List of professional skills identified from the audio
+  - name: goals
+    type: array
+    description: List of career objectives and goals mentioned by the candidate
+  prompt: Analyze the onboarding audio located at {audio_url}. Provide a high-fidelity
+    transcription and then use your extraction capabilities to list all mentioned
+    professional skills and long-term career goals.
+- slug: employer-chat-interaction
+  description: Handles the conversational interface between the employer and the AI
+    recruiter Jill.
+  usage: Called whenever the employer sends a message in the intake chat window to
+    get a conversational response.
+  system_id: employer-intake-pipeline
+  contract:
+  - name: input
+    type: string
+    description: The natural language message sent by the employer describing their
+      hiring needs.
+  response:
+  - name: reply
+    type: string
+    description: The AI's conversational response designed to move the briefing forward.
+  - name: status
+    type: string
+    description: Indicates whether the intake session is ongoing or ready for extraction.
+  prompt: 'As Jill the AI recruiter, process the following input from the employer:
+    {input}. Respond with a helpful message that either confirms their requirements
+    or asks a follow-up question to clarify the role.'
+- slug: extract-job-brief
+  description: Synthesizes the entire conversation history into a formal, structured
+    job requisition.
+  usage: Called when the employer finishes the chat or clicks 'Generate Brief' to
+    finalize the job requirements.
+  system_id: employer-intake-pipeline
+  contract:
+  - name: conversation_history
+    type: array
+    description: An array of message objects containing the full dialogue between
+      the employer and Jill.
+  response:
+  - name: job_title
+    type: string
+    description: The official title for the open position as determined from the conversation.
+  - name: requirements
+    type: array
+    description: A list of mandatory and preferred skills, tools, and experience levels.
+  - name: culture_fit
+    type: array
+    description: Specific team values, working styles, and personality traits requested
+      by the employer.
+  prompt: 'Analyze the following conversation history: {conversation_history}. Extract
+    and return a structured recruitment brief containing the job_title, requirements
+    list, and culture_fit indicators. Ensure all data is pulled directly from the
+    context of the dialogue.'
+- slug: calculate-matches
+  description: Uses semantic similarity to score a batch of candidates against a specific
+    job briefing, producing explained relevance scores.
+  usage: Called from the recruitment dashboard when a user triggers a 'Match' action
+    for a set of candidates against a new or existing job role.
+  system_id: match-analysis-engine
+  contract:
+  - name: brief_id
+    type: string
+    description: The unique identifier of the JobBriefing record containing requirements
+      and cultural context.
+  - name: candidate_ids
+    type: array
+    description: A list of unique Candidate IDs to be evaluated against the job briefing.
+  response:
+  - name: matches
+    type: array
+    description: A collection of match results, each containing the candidate ID,
+      a numerical score, and a text-based justification.
+  prompt: Evaluate the match between job briefing {brief_id} and the candidates {candidate_ids}.
+    For each candidate, provide a semantic match score from 0 to 10 based on technical
+    skills, experience level, and cultural alignment described in the briefing. Include
+    a detailed reasoning string for each that highlights specific strengths or missing
+    requirements.
